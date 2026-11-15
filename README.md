@@ -58,5 +58,3 @@ birinchi ochilishi ~1 daqiqa oladi. O'lchovlar 24 soat saqlanadi.
 ```bash
 pip install pytest && python -m pytest -q tests
 ```
-# sensocloud
-SensoCloud: bulutda IoT platformasi - sensor ma'lumotlarini real vaqtda qayta ishlash (FastAPI, PostgreSQL, Render)
