@@ -1,0 +1,24 @@
+# Render Blueprint: IoT API xizmati (Docker) + bepul PostgreSQL bazasi
+services:
+  - type: web
+    name: sensocloud
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sensocloud-db
+          property: connectionString
+      - key: DEVICE_SECRET
+        generateValue: true
+      - key: SIMULATOR
+        value: "1"
+
+databases:
+  - name: sensocloud-db
+    plan: free
+    region: frankfurt
+    databaseName: sensocloud
+    user: sensocloud
