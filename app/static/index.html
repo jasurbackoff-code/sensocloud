@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SensoCloud – IoT monitoring</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#f4f6f8; --card:#fff; --ink:#1b2430; --muted:#667085; --line:#e4e7ec; --accent:#0e7c66; --warn:#d92d20; --off:#98a2b3; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:#10302a; color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:20px; } header small { color:#b9d6cf; }
+  .live { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:#b9f0e0; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#39d98a; box-shadow:0 0 0 0 rgba(57,217,138,.7); animation:p 1.6s infinite; }
+  @keyframes p { 70% { box-shadow:0 0 0 8px rgba(57,217,138,0); } 100% { box-shadow:0 0 0 0 rgba(57,217,138,0); } }
+  main { max-width:1150px; margin:18px auto; padding:0 16px; display:grid; gap:16px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+  .stat, .card, .sensor { background:var(--card); border:1px solid var(--line); border-radius:10px; }
+  .stat { padding:12px 14px; } .stat span { color:var(--muted); font-size:12px; } .stat b { display:block; font-size:22px; margin-top:4px; }
+  .sensors { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; }
+  .sensor { padding:12px 14px; cursor:pointer; border-left:4px solid var(--accent); }
+  .sensor.sel { outline:2px solid var(--accent); }
+  .sensor.alert { border-left-color:var(--warn); }
+  .sensor.offline { border-left-color:var(--off); opacity:.75; }
+  .sensor .t { font-size:12px; color:var(--muted); } .sensor .v { font-size:26px; font-weight:700; margin:4px 0; }
+  .sensor .v small { font-size:13px; color:var(--muted); font-weight:500; }
+  .badge { font-size:11px; padding:2px 7px; border-radius:20px; background:#e7f6f1; color:var(--accent); }
+  .alert .badge { background:#fde8e7; color:var(--warn); } .offline .badge { background:#f0f1f3; color:var(--muted); }
+  .card { padding:16px; } .card h2 { margin:0 0 10px; font-size:16px; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  select { padding:6px 8px; border:1px solid var(--line); border-radius:6px; font:inherit; }
+  table { width:100%; border-collapse:collapse; font-size:14px; } td, th { padding:7px 6px; border-bottom:1px solid var(--line); text-align:left; }
+  th { color:var(--muted); font-weight:500; font-size:12px; }
+  .two { display:grid; grid-template-columns:1fr; gap:16px; }
+  @media (min-width:900px) { .two { grid-template-columns:2fr 1fr; } }
+  .muted { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>SensoCloud</h1><small>Toshkent shahri: havo sifati va mikroiqlim monitoringi (IoT)</small></div>
+  <span class="live"><span class="dot"></span> Real vaqt · <span id="upd">—</span></span>
+</header>
+<main>
+  <section class="stats" id="stats"></section>
+  <section class="sensors" id="sensors"></section>
+  <section class="two">
+    <div class="card">
+      <div class="row"><h2 id="chartTitle">Grafik</h2>
+        <select id="range"><option value="15">Oxirgi 15 daqiqa</option><option value="60" selected>Oxirgi 1 soat</option><option value="1440">Oxirgi 24 soat</option></select></div>
+      <canvas id="chart" height="120"></canvas>
+      <p class="muted" id="limitNote"></p>
+    </div>
+    <div class="card"><h2>Ogohlantirishlar</h2><table><thead><tr><th>Vaqt</th><th>Sensor</th><th>Xabar</th></tr></thead><tbody id="alerts"></tbody></table></div>
+  </section>
+  <p class="muted">API: <code>POST /api/readings</code> · <code>GET /api/latest</code> · <code>GET /api/history</code> · <code>GET /api/alerts</code> · <code>GET /api/stats</code> · <a href="/docs">to'liq API hujjati</a></p>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let selected = 'PM-01', chart = null, devices = [];
+const time = iso => new Date(iso).toLocaleTimeString('uz-UZ', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+const get = u => fetch(u).then(r => r.json());
+
+async function refresh() {
+  try {
+    const [latest, st, al] = await Promise.all([get('/api/latest'), get('/api/stats'), get('/api/alerts?limit=8')]);
+    devices = latest;
+    $('stats').innerHTML = [
+      ['Onlayn sensorlar', `${st.devices_online} / ${st.devices_total}`],
+      ['Xabar / daqiqa', st.messages_last_minute],
+      ['Xabar / soat', st.messages_last_hour],
+      ['Saqlangan o\'lchovlar', st.readings_stored.toLocaleString('uz-UZ')],
+      ['Ogohlantirish / soat', st.alerts_last_hour],
+      ['Rad etilgan xabarlar', st.rejected_since_start],
+    ].map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join('');
+    $('sensors').innerHTML = latest.map(d => {
+      const cls = d.status !== 'onlayn' ? 'offline' : d.alert ? 'alert' : '';
+      const badge = d.status !== 'onlayn' ? d.status : d.alert ? 'chegaradan oshdi' : 'normal';
+      return `<div class="sensor ${cls} ${d.id === selected ? 'sel' : ''}" onclick="pick('${d.id}')">
+        <div class="t">${d.id} · ${d.location}</div>
+        <div class="v">${d.value ?? '—'} <small>${d.unit}</small></div>
+        <div class="row"><span class="t">${d.type}</span><span class="badge">${badge}</span></div></div>`;
+    }).join('');
+    $('alerts').innerHTML = al.length ? al.map(a => `<tr><td>${time(a.ts)}</td><td>${a.device_id}<br><span class="muted">${a.location}</span></td><td>${a.message}</td></tr>`).join('')
+      : '<tr><td colspan="3" class="muted">Hozircha ogohlantirish yo\'q</td></tr>';
+    $('upd').textContent = new Date().toLocaleTimeString('uz-UZ');
+    await drawChart();
+  } catch (e) { $('upd').textContent = 'ulanish kutilmoqda…'; }
+}
+async function drawChart() {
+  const d = devices.find(x => x.id === selected); if (!d) return;
+  const rows = await get(`/api/history?device_id=${selected}&minutes=${$('range').value}`);
+  $('chartTitle').textContent = `${d.type} — ${d.location} (${d.id})`;
+  const res = await get('/api/devices'); const meta = res.find(x => x.id === selected);
+  const lim = meta.max_limit ?? meta.min_limit;
+  $('limitNote').textContent = `Ogohlantirish chegarasi: ${meta.min_limit != null ? '< ' + meta.min_limit + ' ' : ''}${meta.max_limit != null ? '> ' + meta.max_limit : ''} ${d.unit}`;
+  const data = { labels: rows.map(r => time(r.ts)), datasets: [
+    { label: `${d.type}, ${d.unit}`, data: rows.map(r => r.value), borderColor: '#0e7c66', backgroundColor: 'rgba(14,124,102,.08)', fill: true, tension: .3, pointRadius: 0 },
+    { label: 'Chegara', data: rows.map(() => meta.max_limit), borderColor: '#d92d20', borderDash: [6, 5], pointRadius: 0, fill: false },
+  ] };
+  if (chart) { chart.data = data; chart.update('none'); }
+  else chart = new Chart($('chart'), { type: 'line', data, options: { animation: false, scales: { x: { ticks: { maxTicksLimit: 8 } } }, plugins: { legend: { position: 'bottom' } } } });
+}
+function pick(id) { selected = id; refresh(); }
+$('range').onchange = drawChart;
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>
